@@ -8,6 +8,12 @@ export interface HookDefinition {
 	script: string;
 	description?: string;
 	baseDir?: string; // plugin hooks run from their own directory
+	/**
+	 * Failure policy for pre_tool_use guard hooks. Defaults to false: a hook
+	 * that crashes, exits non-zero, or times out blocks the tool call. Set to
+	 * true only for advisory hooks whose failure should not block the tool.
+	 */
+	fail_open?: boolean;
 	_handler?: (ctx: Record<string, any>) => Promise<HookResult> | HookResult;
 }
 
@@ -160,7 +166,7 @@ export async function runHooks(
 			}
 		} catch (err: any) {
 			console.error(`Hook error: ${err.message}`);
-			if (options.failClosed) {
+			if (options.failClosed && hook.fail_open !== true) {
 				return { action: "block", reason: `guard hook failed: ${err.message}` };
 			}
 			// Other hook types don't block execution on error

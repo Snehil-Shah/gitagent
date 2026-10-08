@@ -210,6 +210,23 @@ describe("pre_tool_use fail-closed", () => {
 		assert.equal(res.action, "allow");
 		rmSync(dir, { recursive: true, force: true });
 	});
+
+	it("lets the tool run only when the failing hook sets fail_open: true", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "gitagent-hook-"));
+		mkdirSync(join(dir, "hooks"));
+		writeFileSync(join(dir, "hooks", "crash.sh"), "exit 3\n");
+		let ran = false;
+		const t: any = { name: "probe", execute: async () => { ran = true; return { content: [], details: undefined }; } };
+
+		const explicitClosed = wrapToolWithHooks(t, { hooks: { pre_tool_use: [{ script: "crash.sh", fail_open: false }] } }, dir, "s");
+		await assert.rejects(() => explicitClosed.execute("id", {}), /blocked by hook/);
+		assert.equal(ran, false);
+
+		const advisory = wrapToolWithHooks(t, { hooks: { pre_tool_use: [{ script: "crash.sh", fail_open: true }] } }, dir, "s");
+		await advisory.execute("id", {});
+		assert.equal(ran, true);
+		rmSync(dir, { recursive: true, force: true });
+	});
 });
 
 // ── 8: read pagination by byte budget ───────────────────────────────────
