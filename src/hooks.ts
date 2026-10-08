@@ -131,10 +131,19 @@ async function executeHook(
 	});
 }
 
+export interface RunHooksOptions {
+	/**
+	 * When true, a hook that crashes, exits non-zero, or times out blocks the
+	 * action instead of being ignored. Used for pre_tool_use guard hooks.
+	 */
+	failClosed?: boolean;
+}
+
 export async function runHooks(
 	hooks: HookDefinition[] | undefined,
 	agentDir: string,
 	input: Record<string, any>,
+	options: RunHooksOptions = {},
 ): Promise<HookResult> {
 	if (!hooks || hooks.length === 0) {
 		return { action: "allow" };
@@ -151,7 +160,10 @@ export async function runHooks(
 			}
 		} catch (err: any) {
 			console.error(`Hook error: ${err.message}`);
-			// Hook errors don't block execution by default
+			if (options.failClosed) {
+				return { action: "block", reason: `guard hook failed: ${err.message}` };
+			}
+			// Other hook types don't block execution on error
 		}
 	}
 
@@ -187,7 +199,8 @@ export function wrapToolWithHooks<T extends AgentTool<any>>(
 				args,
 			};
 
-			const result = await runHooks(preToolHooks, agentDir, hookInput);
+			// Guard hooks fail closed: if one crashes or times out, the tool is blocked.
+			const result = await runHooks(preToolHooks, agentDir, hookInput, { failClosed: true });
 
 			if (result.action === "block") {
 				throw new Error(`Tool "${tool.name}" blocked by hook: ${result.reason || "no reason given"}`);

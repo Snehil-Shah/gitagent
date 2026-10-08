@@ -657,6 +657,8 @@ Scripts receive JSON on stdin and output JSON on stdout:
 
 **Actions:** `allow`, `block`, `modify` (with `args` field for modified arguments)
 
+**Failure handling:** `pre_tool_use` hooks fail closed: if a hook script cannot start, exits with a non-zero code, or times out (10s), the tool call is blocked and the hook error is returned as the reason. A hook that exits 0 without printing JSON is treated as `allow`. Hook failures for all other events are logged and ignored.
+
 ### Programmatic Hooks (SDK)
 
 ```typescript
