@@ -43,6 +43,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
+    "pretest": "tsc",
     "test": "node --test test/*.test.ts --experimental-strip-types"
   },
   "engines": {
