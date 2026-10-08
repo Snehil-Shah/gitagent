@@ -1846,6 +1846,10 @@ fn file_meta(root: &std::path::Path, rel: &str) -> String {
     if ext == "pdf" {
         return json!({ "kind": "pdf" }).to_string();
     }
+    // Too big to load into memory for the viewer → open externally.
+    if std::fs::metadata(&p).map(|m| m.len() > 32 * 1024 * 1024).unwrap_or(true) {
+        return json!({ "kind": "binary" }).to_string();
+    }
     // Documents: show extracted text in the viewer tab.
     if crate::sdk::extract::is_document(&p) {
         if let Ok(bytes) = std::fs::read(&p) {
