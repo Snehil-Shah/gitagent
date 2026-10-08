@@ -30,3 +30,4 @@ crossterm = { version = "0.28", features = ["event-stream"] }
 tiny_http = "0.12"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
+getrandom = "0.2"
