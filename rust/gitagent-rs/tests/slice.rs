@@ -1238,3 +1238,42 @@ fn cli_timeout_kills_the_whole_process_group() {
     assert!(!alive, "background child must be killed with the group");
     fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn concurrent_prompt_is_rejected_and_turns_cancel_independently() {
+    use ira::pi::agent::Agent;
+    use ira::pi::event::AgentEvent;
+    let (base, _) = spawn_mock_llm(|_| {
+        std::thread::sleep(Duration::from_millis(400));
+        (200, "data: {\"choices\":[{\"delta\":{\"content\":\"one\"}}]}\n\ndata: [DONE]\n\n".to_string())
+    });
+    block_on(async move {
+        let agent = Agent::new("sys".into(), Vec::new(), &format!("openai:m@{base}"));
+        let (mut first, first_cancel) = agent.prompt_with_cancel("a".into());
+        let mut second = agent.prompt("b".into());
+        let mut busy_err = None;
+        while let Some(ev) = second.next().await {
+            if let AgentEvent::MessageEnd(m) = ev {
+                busy_err = m.error_message;
+            }
+        }
+        assert!(busy_err.unwrap_or_default().contains("busy"));
+        let mut text = String::new();
+        while let Some(ev) = first.next().await {
+            if let AgentEvent::MessageDelta { text: t, .. } = ev {
+                text.push_str(&t);
+            }
+        }
+        assert_eq!(text, "one");
+        // The finished turn's token no longer reaches the next turn.
+        let (mut third, _) = agent.prompt_with_cancel("c".into());
+        first_cancel.cancel();
+        let mut got = String::new();
+        while let Some(ev) = third.next().await {
+            if let AgentEvent::MessageDelta { text: t, .. } = ev {
+                got.push_str(&t);
+            }
+        }
+        assert_eq!(got, "one");
+    });
+}

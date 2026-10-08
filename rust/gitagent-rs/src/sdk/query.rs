@@ -23,6 +23,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::sync::CancellationToken;
 
 /// What the SDK surfaces to consumers.
 #[derive(Debug, Clone)]
@@ -59,6 +60,8 @@ pub struct RunUsage {
 pub struct QueryStream {
     inner: ReceiverStream<AgentEvent>,
     agent: Arc<Agent>,
+    /// This run's own cancel token.
+    cancel: CancellationToken,
     /// Present in repo mode; finalized (commit/push + PAT scrub) once, on Done or Drop.
     session: Option<LocalSession>,
     usage: RunUsage,
@@ -88,8 +91,8 @@ impl QueryStream {
 impl Drop for QueryStream {
     fn drop(&mut self) {
         // Breaking out of the stream cancels the underlying run (no runaway spend),
-        // then commits/pushes + scrubs the PAT (repo mode).
-        self.agent.abort();
+        // then commits/pushes (repo mode).
+        self.cancel.cancel();
         self.finalize_session();
     }
 }
@@ -247,8 +250,8 @@ pub fn query(opts: QueryOptions) -> anyhow::Result<QueryStream> {
     // Cloning, MCP handshakes etc. are blocking — keep them off async workers.
     let (agent, session, telemetry) =
         blocking(|| build_agent(opts.dir, opts.model, opts.repo, opts.permission_mode))?;
-    let inner = agent.prompt(opts.prompt);
-    Ok(QueryStream { inner, agent, session, usage: RunUsage::default(), telemetry })
+    let (inner, cancel) = agent.prompt_with_cancel(opts.prompt);
+    Ok(QueryStream { inner, agent, cancel, session, usage: RunUsage::default(), telemetry })
 }
 
 /// A persistent multi-turn session: conversation context carries across `send`
@@ -274,8 +277,8 @@ pub fn open_session(
 impl Session {
     /// Run one turn on the persistent transcript. Returns this turn's Events.
     pub fn send(&self, prompt: impl Into<String>) -> TurnStream {
-        let inner = self.agent.prompt(prompt.into());
-        TurnStream { inner, agent: self.agent.clone(), usage: RunUsage::default(), telemetry: self.telemetry.clone() }
+        let (inner, cancel) = self.agent.prompt_with_cancel(prompt.into());
+        TurnStream { inner, cancel, usage: RunUsage::default(), telemetry: self.telemetry.clone() }
     }
     /// Inject a message into the in-flight turn (steering).
     pub fn steer(&self, message: impl Into<String>) {
@@ -299,7 +302,9 @@ impl Drop for Session {
 /// turn — the Session (and its transcript) stays alive for the next `send`.
 pub struct TurnStream {
     inner: ReceiverStream<AgentEvent>,
-    agent: Arc<Agent>,
+    /// This turn's own cancel token — dropping a finished turn's stream can't
+    /// cancel a later one.
+    cancel: CancellationToken,
     usage: RunUsage,
     telemetry: Option<Telemetry>,
 }
@@ -312,7 +317,7 @@ impl TurnStream {
 
 impl Drop for TurnStream {
     fn drop(&mut self) {
-        self.agent.abort(); // interrupting the stream cancels this turn only
+        self.cancel.cancel(); // interrupting the stream cancels this turn only
     }
 }
 
