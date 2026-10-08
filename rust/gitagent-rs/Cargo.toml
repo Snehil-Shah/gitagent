@@ -31,3 +31,6 @@ tiny_http = "0.12"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
 getrandom = "0.2"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
